@@ -2,6 +2,28 @@
 
 import serial
 
+
+def twos_complement(x, bits):
+    """Generate hex string of 2's complement of a decimal int.
+    
+    Parameters
+    ----------
+    x : int
+        signed decimal integer
+    bits : int
+        number of bits required in representation
+    
+    Returns
+    -------
+    hexstr : str
+        hex string of 2's complement of x
+    """
+    if x > 0:
+        return f'{x:0{bits // 4}x}'
+    else:
+        return f'{2**bits-abs(x):0{bits // 4}x}'
+
+
 class ell17():
 
     err_msg_lst = ['no error',
@@ -23,13 +45,13 @@ class ell17():
         self.port = port
         self.baud = baud
         self.timeout = timeout
-        self.ser = serial.Serial(port, baud, timeout)
+        self.ser = serial.Serial(port, baud, timeout=timeout)
         self.addr = 0
-        get_info(self)
-        get_motor_info(self, 1)
-        get_motor_info(self, 2)
-        get_pos(self)
-        get_velocity(self)
+        self.get_info()
+        self.get_motor_info(1)
+        self.get_motor_info(2)
+        self.get_pos()
+        self.get_velocity()
 
 
     def __del__(self):
@@ -55,10 +77,10 @@ class ell17():
         if self.err >= 14:
             self.err_msg = 'reserved'
         else:
-            self.err_msg = err_msg_lst[self.err]
-        s_resp = f"""addr={r_addr}\n
-                cmd={r_cmd}\n
-                error={self.err}, {self.err_msg}"""
+            self.err_msg = self.err_msg_lst[self.err]
+        s_resp = (f'addr={r_addr}\n'
+            f'cmd={r_cmd}\n'
+            f'error={self.err}, {self.err_msg}\n')
         print(s_resp)
 
 
@@ -66,7 +88,7 @@ class ell17():
         """Get stage information"""
         cmd = 'in'
         resp_len = 35
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
         self.model = int(resp[3:5], base=16)
         self.serial = int(resp[5:13])
         self.year = int(resp[13:17])
@@ -78,16 +100,16 @@ class ell17():
         self.hwrel = int(resp[20:21], 16)
         self.travel = int(resp[21:25], 16)
         self.pulses = int(resp[25:33], 16)
-        s_resp = f"""addr={r_addr}\n
-                cmd={r_cmd}\n
-                model={self.model}\n
-                serial #={self.serial}\n
-                year={self.year}\n
-                firmware release={self.fwrel}\n
-                thread={self.thread}\n
-                harware release={self.hwrel}\n
-                travel={self.travel} mm\n
-                pulses per mm={self.pulses}"""
+        s_resp = (f'addr={r_addr}\n'
+            f'cmd={r_cmd}\n'
+            f'model={self.model}\n'
+            f'serial #={self.serial}\n'
+            f'year={self.year}\n'
+            f'firmware release={self.fwrel}\n'
+            f'thread={self.thread}\n'
+            f'harware release={self.hwrel}\n'
+            f'travel={self.travel} mm\n'
+            f'pulses per mm={self.pulses}\n')
         print(s_resp)
 
 
@@ -95,16 +117,16 @@ class ell17():
         """Get status"""
         cmd = 'gs'
         resp_len = 7
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
-        _handle_status(self, resp, r_addr, r_cmd)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
+        self._handle_status(resp, r_addr, r_cmd)
 
 
     def save_user_data(self):
         """Save user data"""
         cmd = 'us'
         resp_len = 7
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
-        _handle_status(self, resp, r_addr, r_cmd)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
+        self._handle_status(resp, r_addr, r_cmd)
 
 
     def change_addr(self, new_addr):
@@ -117,22 +139,22 @@ class ell17():
         """
         cmd = 'ca'
         resp_len = 7
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len, new_addr)
-        _handle_status(self, resp, r_addr, r_cmd)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len, new_addr)
+        self._handle_status(resp, r_addr, r_cmd)
         if r_addr == new_addr:
             self.addr = new_addr
         else:
             # need to reset old address to clear error
-            resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len, self.addr)
+            resp, r_addr, r_cmd = self._query_msg(cmd, resp_len, self.addr)
 
 
     def _get_motor1_info(self):
         """Get motor 1 information"""
         cmd = 'i1'
         resp_len = 27
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
         if r_cmd == 'GS':
-            _handle_status(self, resp, r_addr, r_cmd)
+            self._handle_status(resp, r_addr, r_cmd)
             return
         if int(resp[3:4]) == 1:
             self.m1_loop = 'on'
@@ -152,20 +174,20 @@ class ell17():
         else:
             self.m1_rd = int(resp[13:17], 16)
         self.m1_fp = int(resp[17:21], 16) / 14740000
-        self.m1_ff = 1 / r_fp
+        self.m1_ff = 1 / self.m1_fp
         self.m1_bp = int(resp[21:25], 16) / 14740000
-        self.m1_bf = 1 / r_bp
-        s_resp = f"""addr={r_addr}\n
-                cmd={r_cmd}\n
-                loop={self.m1_loop}\n
-                motor={self.m1_motor}\n
-                current={self.m1_current} A\n
-                ramp up={self.m1_ru} PWM increase /ms\n
-                ramp down={self.m1_rd} PWM decrease /ms\n
-                fwd period={self.m1_fp} s\n
-                fwd frequency={self.m1_ff} Hz\n
-                bwd period={self.m1_bp} s\n
-                bwd frequency={self.m1_bf} Hz"""
+        self.m1_bf = 1 / self.m1_bp
+        s_resp = (f'addr={r_addr}\n'
+            f'cmd={r_cmd}\n'
+            f'm1 loop={self.m1_loop}\n'
+            f'm1 motor={self.m1_motor}\n'
+            f'm1 current={self.m1_current} A\n'
+            f'm1 ramp up={self.m1_ru} PWM increase /ms\n'
+            f'm1 ramp down={self.m1_rd} PWM decrease /ms\n'
+            f'm1 fwd period={self.m1_fp} s\n'
+            f'm1 fwd frequency={self.m1_ff} Hz\n'
+            f'm1 bwd period={self.m1_bp} s\n'
+            f'm1 bwd frequency={self.m1_bf} Hz\n')
         print(s_resp)
 
 
@@ -173,9 +195,9 @@ class ell17():
         """Get motor 1 information"""
         cmd = 'i2'
         resp_len = 27
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
         if r_cmd == 'GS':
-            _handle_status(self, resp, r_addr, r_cmd)
+            self._handle_status(resp, r_addr, r_cmd)
             return
         if int(resp[3:4]) == 1:
             self.m2_loop = 'on'
@@ -195,20 +217,20 @@ class ell17():
         else:
             self.m2_rd = int(resp[13:17], 16)
         self.m2_fp = int(resp[17:21], 16) / 14740000
-        self.m2_ff = 1 / r_fp
+        self.m2_ff = 1 / self.m2_fp
         self.m2_bp = int(resp[21:25], 16) / 14740000
-        self.m2_bf = 1 / r_bp
-        s_resp = f"""addr={r_addr}\n
-                cmd={r_cmd}\n
-                loop={self.m2_loop}\n
-                motor={self.m2_motor}\n
-                current={self.m2_current} A\n
-                ramp up={self.m2_ru} PWM increase /ms\n
-                ramp down={self.m2_rd} PWM decrease /ms\n
-                fwd period={self.m2_fp} s\n
-                fwd frequency={self.m2_ff} Hz\n
-                bwd period={self.m2_bp} s\n
-                bwd frequency={self.m2_bf} Hz"""
+        self.m2_bf = 1 / self.m2_bp
+        s_resp = (f'addr={r_addr}\n'
+                f'cmd={r_cmd}\n'
+                f'm2 loop={self.m2_loop}\n'
+                f'm2 motor={self.m2_motor}\n'
+                f'm2 current={self.m2_current} A\n'
+                f'm2 ramp up={self.m2_ru} PWM increase /ms\n'
+                f'm2 ramp down={self.m2_rd} PWM decrease /ms\n'
+                f'm2 fwd period={self.m2_fp} s\n'
+                f'm2 fwd frequency={self.m2_ff} Hz\n'
+                f'm2 bwd period={self.m2_bp} s\n'
+                f'm2 bwd frequency={self.m2_bf} Hz\n')
         print(s_resp)
 
 
@@ -221,14 +243,14 @@ class ell17():
             motor number
         """
         if motor == 1:
-            _get_motor1_info(self)
+            self._get_motor1_info()
         elif motor == 2:
-            _get_motor2_info(self)
+            self._get_motor2_info()
         else:
             cmd = f'i{motor}'
             resp_len = 7
-            resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len, new_addr)
-            _handle_status(self, resp, r_addr, r_cmd)
+            resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
+            self._handle_status(resp, r_addr, r_cmd)
         
 
     def set_motor_fwd_period(self, period, motor):
@@ -252,67 +274,48 @@ class ell17():
 
         cmd = f's{motor}'
         resp_len = 7
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
-        _handle_status(self, resp, r_addr, r_cmd)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
+        self._handle_status(resp, r_addr, r_cmd)
         
         # reset timeout
         self.ser.timeout = self.timeout
         
         # write new frequency to attribute
-        get_motor_info(self, motor)
+        self.get_motor_info(motor)
 
 
     def scan_motor_current_curve(self, motor):
         pass
 
 
-    def move_abs(self, pos):
-        """Move stage to absolute position in mm.
+    def move(self, pos, mode):
+        """Move stage to position in mm.
         
         Parameters
         ----------
         pos : float
-            absolute position in mm
+            position in mm
+        mode : str
+            'abs' for absolute, 'rel' for relative position
         """
         pulses = int(pos * self.pulses)
-        hpulses = f'{pulses:0{8}x}'
-        cmd = f'ma{hpulses}'
-        resp_len = 13
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
-        if r_cmd == 'GS':
-            _handle_status(self, resp, r_addr, r_cmd)
-            return
-        self.pos = int(resp[3:11], 16) / self.pulses
-        s_resp = f"""addr={r_addr}\n
-                cmd={r_cmd}\n
-                pos={self.pos} mm"""
-        print(s_resp)
-
-
-    def move_rel(self, pos):
-        """Move stage relative to current position in mm.
-        
-        Parameters
-        ----------
-        pos : float
-            relative position in mm
-        """
-        pulses = int(pos * self.pulses)
-        if pos > 0:
-            hpulses = f'{pulses:0{8}x}'
+        hpulses = twos_complement(pulses, 32)
+        if mode == 'abs':
+            cmd = f'ma{hpulses}'
+        elif mode == 'rel':
+            cmd = f'mr{hpulses}'
         else:
-            # TODO: add 2's complement conversion for negative numbers
-            pass
-        cmd = f'ma{hpulses}'
+            print(f'\'{mode}\' mode not recognised. Use \'abs\' or \'rel\'.')
+            return
         resp_len = 13
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
         if r_cmd == 'GS':
-            _handle_status(self, resp, r_addr, r_cmd)
+            self._handle_status(resp, r_addr, r_cmd)
             return
         self.pos = int(resp[3:11], 16) / self.pulses
-        s_resp = f"""addr={r_addr}\n
-                cmd={r_cmd}\n
-                pos={self.pos} mm"""
+        s_resp = (f'addr={r_addr}\n'
+            f'cmd={r_cmd}\n'
+            f'pos={self.pos} mm\n')
         print(s_resp)
 
 
@@ -328,11 +331,11 @@ class ell17():
         """Get jog step size in mm"""
         cmd = 'gj'
         resp_len = 13
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
         self.jogsize = int(resp[3:11], 16) / self.pulses
-        s_resp = f"""addr={r_addr}\n
-                cmd={r_cmd}\n
-                jog={self.jogsize} mm"""
+        s_resp = (f'addr={r_addr}\n'
+            f'cmd={r_cmd}\n'
+            f'jog={self.jogsize} mm\n')
         print(s_resp)
 
 
@@ -348,10 +351,10 @@ class ell17():
         hpulses = f'{pulses:0{8}x}'
         cmd = f'sj{hpulses}'
         resp_len = 7
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
-        _handle_status(self, resp, r_addr, r_cmd)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
+        self._handle_status(resp, r_addr, r_cmd)
         if self.err == 0:
-            get_jog_stepsize(self)
+            self.get_jog_stepsize()
 
 
     def jog_stage(self, direction):
@@ -365,14 +368,14 @@ class ell17():
         """
         cmd = f'{direction}'
         resp_len = 13
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
         if r_cmd == 'GS':
-            _handle_status(self, resp, r_addr, r_cmd)
+            self._handle_status(resp, r_addr, r_cmd)
             return
         self.pos = int(resp[3:11], 16) / self.pulses
-        s_resp = f"""addr={r_addr}\n
-                cmd={r_cmd}\n
-                pos={self.pos} mm"""
+        s_resp = (f'addr={r_addr}\n'
+            f'cmd={r_cmd}\n'
+            f'pos={self.pos} mm\n')
         print(s_resp)
 
     
@@ -380,14 +383,14 @@ class ell17():
         """Get position in mm"""
         cmd = 'gp'
         resp_len = 13
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
         if r_cmd == 'GS':
-            _handle_status(self, resp, r_addr, r_cmd)
+            self._handle_status(resp, r_addr, r_cmd)
             return
         self.pos = int(resp[3:11], 16) / self.pulses
-        s_resp = f"""addr={r_addr}\n
-                cmd={r_cmd}\n
-                pos={self.pos} mm"""
+        s_resp = (f'addr={r_addr}\n'
+            f'cmd={r_cmd}\n'
+            f'pos={self.pos} mm\n')
         print(s_resp)
 
 
@@ -395,11 +398,11 @@ class ell17():
         """Get velocity in %"""
         cmd = 'gv'
         resp_len = 7
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
         self.velocity = int(resp[3:5], 16)
-        s_resp = f"""addr={r_addr}\n
-                cmd={r_cmd}\n
-                velocity={self.velocity} %"""
+        s_resp = (f'addr={r_addr}\n'
+            f'cmd={r_cmd}\n'
+            f'velocity={self.velocity} %\n')
         print(s_resp)
 
 
@@ -416,9 +419,9 @@ class ell17():
         """
         cmd = f'sv{velocity:0{2}x}'
         resp_len = 7
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
-        _handle_status(self, resp, r_addr, r_cmd)
+        resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
+        self._handle_status(resp, r_addr, r_cmd)
         if self.err == 0:
-            get_velocity(self)
+            self.get_velocity()
 
     
