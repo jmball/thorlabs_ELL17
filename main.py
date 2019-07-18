@@ -26,6 +26,11 @@ class ell17():
         self.ser = serial.Serial(port, baud, timeout)
         self.addr = 0
         get_info(self)
+        get_motor_info(self, 1)
+        get_motor_info(self, 2)
+        get_pos(self)
+        get_velocity(self)
+
 
     def __del__(self):
         pass
@@ -121,6 +126,92 @@ class ell17():
             resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len, self.addr)
 
 
+    def _get_motor1_info(self):
+        """Get motor 1 information"""
+        cmd = 'i1'
+        resp_len = 27
+        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
+        if r_cmd == 'GS':
+            _handle_status(self, resp, r_addr, r_cmd)
+            return
+        if int(resp[3:4]) == 1:
+            self.m1_loop = 'on'
+        else:
+            self.m1_loop = 'off'
+        if int(resp[4:5]) == 1:
+            self.m1_motor = 'on'
+        else:
+            self.m1_motor = 'off'
+        self.m1_current = int(resp[5:9], 16) / 1866
+        if resp[9:13] == b'FFFF':
+            self.m1_ru = 'not defined'
+        else:
+            self.m1_ru = int(resp[9:13], 16)
+        if resp[13:17] == b'FFFF':
+            self.m1_rd = 'not defined'
+        else:
+            self.m1_rd = int(resp[13:17], 16)
+        self.m1_fp = int(resp[17:21], 16) / 14740000
+        self.m1_ff = 1 / r_fp
+        self.m1_bp = int(resp[21:25], 16) / 14740000
+        self.m1_bf = 1 / r_bp
+        s_resp = f"""addr={r_addr}\n
+                cmd={r_cmd}\n
+                loop={self.m1_loop}\n
+                motor={self.m1_motor}\n
+                current={self.m1_current} A\n
+                ramp up={self.m1_ru} PWM increase /ms\n
+                ramp down={self.m1_rd} PWM decrease /ms\n
+                fwd period={self.m1_fp} s\n
+                fwd frequency={self.m1_ff} Hz\n
+                bwd period={self.m1_bp} s\n
+                bwd frequency={self.m1_bf} Hz"""
+        print(s_resp)
+
+
+    def _get_motor2_info(self):
+        """Get motor 1 information"""
+        cmd = 'i2'
+        resp_len = 27
+        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
+        if r_cmd == 'GS':
+            _handle_status(self, resp, r_addr, r_cmd)
+            return
+        if int(resp[3:4]) == 1:
+            self.m2_loop = 'on'
+        else:
+            self.m2_loop = 'off'
+        if int(resp[4:5]) == 1:
+            self.m2_motor = 'on'
+        else:
+            self.m2_motor = 'off'
+        self.m2_current = int(resp[5:9], 16) / 1866
+        if resp[9:13] == b'FFFF':
+            self.m2_ru = 'not defined'
+        else:
+            self.m2_ru = int(resp[9:13], 16)
+        if resp[13:17] == b'FFFF':
+            self.m2_rd = 'not defined'
+        else:
+            self.m2_rd = int(resp[13:17], 16)
+        self.m2_fp = int(resp[17:21], 16) / 14740000
+        self.m2_ff = 1 / r_fp
+        self.m2_bp = int(resp[21:25], 16) / 14740000
+        self.m2_bf = 1 / r_bp
+        s_resp = f"""addr={r_addr}\n
+                cmd={r_cmd}\n
+                loop={self.m2_loop}\n
+                motor={self.m2_motor}\n
+                current={self.m2_current} A\n
+                ramp up={self.m2_ru} PWM increase /ms\n
+                ramp down={self.m2_rd} PWM decrease /ms\n
+                fwd period={self.m2_fp} s\n
+                fwd frequency={self.m2_ff} Hz\n
+                bwd period={self.m2_bp} s\n
+                bwd frequency={self.m2_bf} Hz"""
+        print(s_resp)
+
+
     def get_motor_info(self, motor):
         """Get motor information.
         
@@ -129,47 +220,16 @@ class ell17():
         motor : int
             motor number
         """
-        # TODO: handle assigning attributes for multiple motors
-        cmd = f'i{motor}'
-        resp_len = 27
-        resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
-        if r_cmd == 'GS':
+        if motor == 1:
+            _get_motor1_info(self)
+        elif motor == 2:
+            _get_motor2_info(self)
+        else:
+            cmd = f'i{motor}'
+            resp_len = 7
+            resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len, new_addr)
             _handle_status(self, resp, r_addr, r_cmd)
-            return
-        if int(resp[3:4]) == 1:
-            r_loop = 'on'
-        else:
-            r_loop = 'off'
-        if int(resp[4:5]) == 1:
-            r_motor = 'on'
-        else:
-            r_motor = 'off'
-        r_current = int(resp[5:9], 16) / 1866
-        if resp[9:13] == b'FFFF':
-            r_ru = 'not defined'
-        else:
-            r_ru = int(resp[9:13], 16)
-        if resp[13:17] == b'FFFF':
-            r_rd = 'not defined'
-        else:
-            r_rd = int(resp[13:17], 16)
-        r_fp = int(resp[17:21], 16) / 14740000
-        r_ff = 1 / r_fp
-        r_bp = int(resp[21:25], 16) / 14740000
-        r_bf = 1 / r_bp
-        s_resp = f"""addr={r_addr}\n
-                cmd={r_cmd}\n
-                loop={r_loop}\n
-                motor={r_motor}\n
-                current={r_current} A\n
-                ramp up={r_ru} PWM increase /ms\n
-                ramp down={r_rd} PWM decrease /ms\n
-                fwd period={r_fp} s\n
-                fwd frequency={r_ff} Hz\n
-                bwd period={r_bp} s\n
-                bwd frequency={r_bf} Hz"""
-        print(s_resp)
-
+        
 
     def set_motor_fwd_period(self, period, motor):
         pass
