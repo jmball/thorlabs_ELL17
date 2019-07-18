@@ -3,8 +3,8 @@
 import serial
 
 
-def twos_complement(x, bits):
-    """Generate hex string of 2's complement of a decimal int.
+def dec2hex(x, bits):
+    """Generate hex string of a signed decimal int using 2's complement.
     
     Parameters
     ----------
@@ -16,12 +16,32 @@ def twos_complement(x, bits):
     Returns
     -------
     hexstr : str
-        hex string of 2's complement of x
+        hex string
     """
     if x > 0:
         return f'{x:0{bits // 4}x}'
     else:
         return f'{2**bits-abs(x):0{bits // 4}x}'
+
+
+def hex2dec(x):
+    """Generate signed decimal int from hex string using 2's complement.
+    
+    Parameters
+    ----------
+    x : int
+        hex string
+    
+    Returns
+    -------
+    dec : int
+        signed decimal integer
+    """
+    bits = 4 * len(x)
+    if int(x, 16) < 2**(bits-1):
+        return int(x, 16)
+    else:
+        return - (2**bits - int(x, 16))
 
 
 class ell17():
@@ -46,7 +66,15 @@ class ell17():
         self.baud = baud
         self.timeout = timeout
         self.ser = serial.Serial(port, baud, timeout=timeout)
-        self.addr = 0
+        # find address
+        self.ser.timeout = 0.1
+        for a in '0123456789ABCDEF':
+            self.ser.write(bytes(f'{a}gs', 'ascii'))
+            r = self.ser.read(7)
+            if len(r) > 0:
+                self.addr = chr(r[0])
+                break
+        self.ser.timeout = self.timeout
         self.get_info()
         self.get_motor_info(1)
         self.get_motor_info(2)
@@ -66,7 +94,7 @@ class ell17():
                 msg += bytes(f'{arg}', 'ascii')
         self.ser.write(msg)
         resp = self.ser.read(resp_len)
-        r_addr = int(chr(resp[0]))
+        r_addr = chr(resp[0])
         r_cmd = resp[1:3].decode('ascii')
         return resp, r_addr, r_cmd
 
@@ -298,8 +326,9 @@ class ell17():
         mode : str
             'abs' for absolute, 'rel' for relative position
         """
+        # TODO: check why negative relative movements don't seem to work
         pulses = int(pos * self.pulses)
-        hpulses = twos_complement(pulses, 32)
+        hpulses = dec2hex(pulses, 32)
         if mode == 'abs':
             cmd = f'ma{hpulses}'
         elif mode == 'rel':
@@ -312,7 +341,7 @@ class ell17():
         if r_cmd == 'GS':
             self._handle_status(resp, r_addr, r_cmd)
             return
-        self.pos = int(resp[3:11], 16) / self.pulses
+        self.pos = hex2dec(resp[3:11]) / self.pulses
         s_resp = (f'addr={r_addr}\n'
             f'cmd={r_cmd}\n'
             f'pos={self.pos} mm\n')
@@ -372,7 +401,7 @@ class ell17():
         if r_cmd == 'GS':
             self._handle_status(resp, r_addr, r_cmd)
             return
-        self.pos = int(resp[3:11], 16) / self.pulses
+        self.pos = hex2dec(resp[3:11]) / self.pulses
         s_resp = (f'addr={r_addr}\n'
             f'cmd={r_cmd}\n'
             f'pos={self.pos} mm\n')
@@ -387,7 +416,7 @@ class ell17():
         if r_cmd == 'GS':
             self._handle_status(resp, r_addr, r_cmd)
             return
-        self.pos = int(resp[3:11], 16) / self.pulses
+        self.pos = hex2dec(resp[3:11]) / self.pulses
         s_resp = (f'addr={r_addr}\n'
             f'cmd={r_cmd}\n'
             f'pos={self.pos} mm\n')
