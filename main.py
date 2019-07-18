@@ -80,6 +80,7 @@ class ell17():
         self.get_motor_info(2)
         self.get_pos()
         self.get_velocity()
+        self.get_jog_stepsize()
 
 
     def __del__(self):
@@ -94,19 +95,30 @@ class ell17():
                 msg += bytes(f'{arg}', 'ascii')
         self.ser.write(msg)
         resp = self.ser.read(resp_len)
-        r_addr = chr(resp[0])
+        try:
+            r_addr = chr(resp[0])
+        except IndexError:
+            # for positions around zero the sensor sometimes struggles to return
+            # in time, so returns nothing. Therefore, extend timeout and get status.
+            self.ser.timeout = 10
+            self.ser.write(bytes(f'{self.addr}gs', 'ascii'))
+            resp = self.ser.read(7)
+            self.ser.timeout = self.timeout
+            r_addr = chr(resp[0])
         r_cmd = resp[1:3].decode('ascii')
         return resp, r_addr, r_cmd
 
 
     def _handle_status(self, resp, r_addr, r_cmd):
         """Handle response of get_status"""
-        self.err = int(resp[3:5])
+        self.err = int(resp[3:5], 16)
         if self.err >= 14:
             self.err_msg = 'reserved'
         else:
             self.err_msg = self.err_msg_lst[self.err]
-        s_resp = (f'addr={r_addr}\n'
+        s_resp = (f'Status:\n'
+            f'-------\n'
+            f'addr={r_addr}\n'
             f'cmd={r_cmd}\n'
             f'error={self.err}, {self.err_msg}\n')
         print(s_resp)
@@ -128,7 +140,9 @@ class ell17():
         self.hwrel = int(resp[20:21], 16)
         self.travel = int(resp[21:25], 16)
         self.pulses = int(resp[25:33], 16)
-        s_resp = (f'addr={r_addr}\n'
+        s_resp = (f'Stage info:\n'
+            f'-----------\n'
+            f'addr={r_addr}\n'
             f'cmd={r_cmd}\n'
             f'model={self.model}\n'
             f'serial #={self.serial}\n'
@@ -205,7 +219,9 @@ class ell17():
         self.m1_ff = 1 / self.m1_fp
         self.m1_bp = int(resp[21:25], 16) / 14740000
         self.m1_bf = 1 / self.m1_bp
-        s_resp = (f'addr={r_addr}\n'
+        s_resp = (f'Motor 1 info:\n'
+            f'-------------\n'
+            f'addr={r_addr}\n'
             f'cmd={r_cmd}\n'
             f'm1 loop={self.m1_loop}\n'
             f'm1 motor={self.m1_motor}\n'
@@ -248,17 +264,19 @@ class ell17():
         self.m2_ff = 1 / self.m2_fp
         self.m2_bp = int(resp[21:25], 16) / 14740000
         self.m2_bf = 1 / self.m2_bp
-        s_resp = (f'addr={r_addr}\n'
-                f'cmd={r_cmd}\n'
-                f'm2 loop={self.m2_loop}\n'
-                f'm2 motor={self.m2_motor}\n'
-                f'm2 current={self.m2_current} A\n'
-                f'm2 ramp up={self.m2_ru} PWM increase /ms\n'
-                f'm2 ramp down={self.m2_rd} PWM decrease /ms\n'
-                f'm2 fwd period={self.m2_fp} s\n'
-                f'm2 fwd frequency={self.m2_ff} Hz\n'
-                f'm2 bwd period={self.m2_bp} s\n'
-                f'm2 bwd frequency={self.m2_bf} Hz\n')
+        s_resp = (f'Motor 2 info:\n'
+            f'-------------\n'
+            f'addr={r_addr}\n'
+            f'cmd={r_cmd}\n'
+            f'm2 loop={self.m2_loop}\n'
+            f'm2 motor={self.m2_motor}\n'
+            f'm2 current={self.m2_current} A\n'
+            f'm2 ramp up={self.m2_ru} PWM increase /ms\n'
+            f'm2 ramp down={self.m2_rd} PWM decrease /ms\n'
+            f'm2 fwd period={self.m2_fp} s\n'
+            f'm2 fwd frequency={self.m2_ff} Hz\n'
+            f'm2 bwd period={self.m2_bp} s\n'
+            f'm2 bwd frequency={self.m2_bf} Hz\n')
         print(s_resp)
 
 
@@ -327,6 +345,7 @@ class ell17():
             'abs' for absolute, 'rel' for relative position
         """
         # TODO: check why negative relative movements don't seem to work
+        # TODO: check why some absolute movements return to zero e.g. 11 mm
         pulses = int(pos * self.pulses)
         hpulses = dec2hex(pulses, 32)
         if mode == 'abs':
@@ -340,9 +359,12 @@ class ell17():
         resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
         if r_cmd == 'GS':
             self._handle_status(resp, r_addr, r_cmd)
+            self.get_pos()
             return
         self.pos = hex2dec(resp[3:11]) / self.pulses
-        s_resp = (f'addr={r_addr}\n'
+        s_resp = (f'Position:\n'
+            f'---------\n'
+            f'addr={r_addr}\n'
             f'cmd={r_cmd}\n'
             f'pos={self.pos} mm\n')
         print(s_resp)
@@ -362,7 +384,9 @@ class ell17():
         resp_len = 13
         resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
         self.jogsize = int(resp[3:11], 16) / self.pulses
-        s_resp = (f'addr={r_addr}\n'
+        s_resp = (f'Jog stepsize:\n'
+            f'-------------\n'
+            f'addr={r_addr}\n'
             f'cmd={r_cmd}\n'
             f'jog={self.jogsize} mm\n')
         print(s_resp)
@@ -376,7 +400,7 @@ class ell17():
         stepsize : float
             jog step size in mm
         """
-        pulses = stepsize * self.pulses
+        pulses = int(stepsize * self.pulses)
         hpulses = f'{pulses:0{8}x}'
         cmd = f'sj{hpulses}'
         resp_len = 7
@@ -386,7 +410,7 @@ class ell17():
             self.get_jog_stepsize()
 
 
-    def jog_stage(self, direction):
+    def jog(self, direction):
         """
         Jog the stage one step.
 
@@ -400,9 +424,12 @@ class ell17():
         resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
         if r_cmd == 'GS':
             self._handle_status(resp, r_addr, r_cmd)
+            self.get_pos()
             return
         self.pos = hex2dec(resp[3:11]) / self.pulses
-        s_resp = (f'addr={r_addr}\n'
+        s_resp = (f'Position:\n'
+            f'---------\n'
+            f'addr={r_addr}\n'
             f'cmd={r_cmd}\n'
             f'pos={self.pos} mm\n')
         print(s_resp)
@@ -417,7 +444,9 @@ class ell17():
             self._handle_status(resp, r_addr, r_cmd)
             return
         self.pos = hex2dec(resp[3:11]) / self.pulses
-        s_resp = (f'addr={r_addr}\n'
+        s_resp = (f'Position:\n'
+            f'---------\n'
+            f'addr={r_addr}\n'
             f'cmd={r_cmd}\n'
             f'pos={self.pos} mm\n')
         print(s_resp)
@@ -429,7 +458,9 @@ class ell17():
         resp_len = 7
         resp, r_addr, r_cmd = self._query_msg(cmd, resp_len)
         self.velocity = int(resp[3:5], 16)
-        s_resp = (f'addr={r_addr}\n'
+        s_resp = (f'Velocity:\n'
+            f'---------\n'
+            f'addr={r_addr}\n'
             f'cmd={r_cmd}\n'
             f'velocity={self.velocity} %\n')
         print(s_resp)
