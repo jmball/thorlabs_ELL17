@@ -187,11 +187,19 @@ class ell17():
         motor : int
             motor number
         """
+        # increase timeout for frequency search
+        self.ser.timeout = 10
+
         cmd = f's{motor}'
         resp_len = 7
         resp, r_addr, r_cmd = _query_msg(self, cmd, resp_len)
         _handle_status(self, resp, r_addr, r_cmd)
-        # TODO: finish handling output
+        
+        # reset timeout
+        self.ser.timeout = self.timeout
+        
+        # write new frequency to attribute
+        get_motor_info(self, motor)
 
 
     def scan_motor_current_curve(self, motor):
@@ -206,7 +214,7 @@ class ell17():
         pos : float
             absolute position in mm
         """
-        pulses = pos * self.pulses
+        pulses = int(pos * self.pulses)
         hpulses = f'{pulses:0{8}x}'
         cmd = f'ma{hpulses}'
         resp_len = 13
@@ -229,7 +237,7 @@ class ell17():
         pos : float
             relative position in mm
         """
-        pulses = pos * self.pulses
+        pulses = int(pos * self.pulses)
         if pos > 0:
             hpulses = f'{pulses:0{8}x}'
         else:
